@@ -28,7 +28,7 @@ class CronController extends Controller
 
        foreach ($hooks as $key => $row) {
          try {
-             $response =  Http::post($row->hook, json_decode($row->payload));
+             $response =  Http::timeout(10)->post($row->hook, json_decode($row->payload, true));
              $responseStatus = $response->status();
 
               $hook = Webhook::where('id',$row->id)->first();

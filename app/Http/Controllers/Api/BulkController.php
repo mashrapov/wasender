@@ -201,9 +201,9 @@ class BulkController extends Controller
        }
 
 
-       if (isset($request->data[0]['key']['remoteJidAlt'])) {
-        $request_from=explode('@',$request->data[0]['key']['remoteJidAlt']) ?? null;  
-        $request_from = $request_from[0] ?? null;   
+       if (isset($request->data[0]['key']['remoteJid'])) {
+        $request_from = explode('@', $request->data[0]['key']['remoteJid']) ?? null;
+        $request_from = $request_from[0] ?? null;
        }
        
        
@@ -220,14 +220,27 @@ class BulkController extends Controller
             $hook = new Webhook;
             $hook->device_id = $device->id;
             $hook->user_id = $device->user_id;
-            $hook->payload = json_encode([
+            $payload = [
                 'payload'=> $request->all(), 
                 'sender'=> $request_from ?? '',
                 'receiver'=> $device->phone ?? '',
-            ]);
+            ];
+            $hook->payload = json_encode($payload);
             $hook->hook = $device->hook_url;
+            $hook->status = 2; // pending
             $hook->save();
 
+            // Immediately dispatch webhook — don't wait for cron
+            try {
+                $response = Http::timeout(10)->post($device->hook_url, $payload);
+                $hook->status = $response->successful() ? 1 : 0;
+                $hook->status_code = $response->status();
+                $hook->save();
+            } catch (\Exception $e) {
+                $hook->status = 0;
+                $hook->status_code = 500;
+                $hook->save();
+            }
         }
 
        if ($device != null && $message != null) {

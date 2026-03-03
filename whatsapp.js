@@ -179,7 +179,24 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
                 }),
             )
 
-            
+            // Send incoming messages to Laravel webhook handler
+            try {
+                const laravelUrl = process.env.APP_URL + '/api/send-webhook/' + sessionId
+                await axios.post(
+                    laravelUrl,
+                    {
+                        type: 'MESSAGES_UPSERT',
+                        data: messageTmp,
+                    },
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        timeout: 10000,
+                    },
+                )
+                console.log('[Webhook] Notified Laravel about incoming messages:', messageTmp.length)
+            } catch (err) {
+                console.error('[Webhook] Failed to notify Laravel:', err?.message)
+            }
         }
     })
 
@@ -201,7 +218,24 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
                     message: msg,
                 },
             ]
-           
+
+            // Notify Laravel about message status update
+            try {
+                const laravelUrl = process.env.APP_URL + '/api/send-webhook/' + sessionId
+                await axios.post(
+                    laravelUrl,
+                    {
+                        type: 'MESSAGES_UPDATE',
+                        data: messagesUpdate,
+                    },
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        timeout: 10000,
+                    },
+                )
+            } catch (err) {
+                console.error('[Webhook] messages.update failed:', err?.message)
+            }
         }
     })
 
@@ -230,7 +264,25 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
         const { connection, lastDisconnect, qr } = update
         const statusCode = lastDisconnect?.error?.output?.statusCode
 
-       
+        // Notify Laravel about connection status changes
+        if (connection === 'open' || connection === 'close') {
+            try {
+                const laravelUrl = process.env.APP_URL + '/api/send-webhook/' + sessionId
+                await axios.post(
+                    laravelUrl,
+                    {
+                        type: 'CONNECTION_UPDATE',
+                        data: { connection, statusCode },
+                    },
+                    {
+                        headers: { 'Content-Type': 'application/json' },
+                        timeout: 10000,
+                    },
+                )
+            } catch (err) {
+                console.error('[Webhook] connection.update failed:', err?.message)
+            }
+        }
 
         if (connection === 'open') {
             retries.delete(sessionId)
@@ -255,7 +307,6 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
 
         if (qr) {
             if (res && !res.headersSent) {
-            
 
                 try {
                     const qrcode = await toDataURL(qr)
