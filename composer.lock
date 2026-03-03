@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "a13a1f64a4d7e8a9d96fb9b967624874",
+    "content-hash": "286faf1238f287d552c88686dc60ffed",
     "packages": [
         {
             "name": "artesaos/seotools",
@@ -3016,44 +3016,6 @@
                 }
             ],
             "time": "2024-12-08T08:18:47+00:00"
-        },
-        {
-            "name": "maruf695/amcmoduler",
-            "version": "dev-master",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/maruf695/amcmoduler.git",
-                "reference": "dab5c2fb3951a0ea3d88607219ce0a9f80dc9368"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/maruf695/amcmoduler/zipball/dab5c2fb3951a0ea3d88607219ce0a9f80dc9368",
-                "reference": "dab5c2fb3951a0ea3d88607219ce0a9f80dc9368",
-                "shasum": ""
-            },
-            "default-branch": true,
-            "type": "library",
-            "extra": {
-                "laravel": {
-                    "providers": [
-                        "Maruf695\\AMCmoduler\\Maruf695AMCmodulerServiceProvider"
-                    ]
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "Maruf695\\AMCmoduler\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "support": {
-                "issues": "https://github.com/maruf695/amcmoduler/issues",
-                "source": "https://github.com/maruf695/amcmoduler/tree/master"
-            },
-            "time": "2024-10-06T17:49:52+00:00"
         },
         {
             "name": "mercadopago/dx-php",
@@ -8306,6 +8268,35 @@
             "time": "2024-11-21T01:49:47+00:00"
         },
         {
+            "name": "wasender/amcmoduler",
+            "version": "dev-master",
+            "dist": {
+                "type": "path",
+                "url": "packages/wasender/amcmoduler",
+                "reference": "3ecb159cc41708be8a55be32642b43fc34efd873"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "Wasender\\AMCmoduler\\WasenderAMCmodulerServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "Wasender\\AMCmoduler\\": "src/"
+                }
+            },
+            "license": [
+                "MIT"
+            ],
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
             "name": "webmozart/assert",
             "version": "1.11.0",
             "source": {
@@ -11011,13 +11002,13 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "maruf695/amcmoduler": 20
+        "wasender/amcmoduler": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
         "php": "^8.2"
     },
-    "platform-dev": {},
+    "platform-dev": [],
     "plugin-api-version": "2.6.0"
 }

@@ -1,0 +1,20 @@
+{
+    "name": "wasender/amcmoduler",
+    "type": "library",
+    "version": "dev-master",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Wasender\\AMCmoduler\\": "src/"
+        }
+    },
+    "minimum-stability": "stable",
+    "require": {},
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Wasender\\AMCmoduler\\WasenderAMCmodulerServiceProvider"
+            ]
+        }
+    }
+}
