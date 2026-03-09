@@ -15,16 +15,21 @@ app.use(express.urlencoded({ extended: true }))
 app.use(express.json())
 app.use('/', routes)
 
-const listenerCallback = () => {
+const onListening = () => {
     init()
     console.log(`Server is listening on http://${host ? host : 'localhost'}:${port}`)
 }
 
-if (host) {
-    app.listen(port, host, listenerCallback)
-} else {
-    app.listen(port, listenerCallback)
-}
+const server = host ? app.listen(port, host) : app.listen(port)
+
+server.ref()
+server.on('listening', onListening)
+server.on('close', () => {
+    console.warn('[Server] HTTP server closed.')
+})
+server.on('error', (error) => {
+    console.error('[Server] Failed to start or keep listening:', error)
+})
 
 nodeCleanup(cleanup)
 

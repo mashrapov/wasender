@@ -1,4 +1,4 @@
-import { rmSync, readdir, existsSync } from 'fs'
+import { rmSync, readdir, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import https from "https"
 import pino from 'pino'
@@ -35,6 +35,25 @@ const sessionsDir = (sessionId = '') => {
     return join(__dirname, 'sessions', sessionId ? sessionId : '')
 }
 
+const formatError = (error) => {
+    if (error instanceof Error) {
+        return error.stack ?? error.message
+    }
+
+    return String(error)
+}
+
+const ensureSessionsDir = () => {
+    const dir = sessionsDir()
+
+    if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+        console.warn(`[Init] Created missing sessions directory: ${dir}`)
+    }
+
+    return dir
+}
+
 const isSessionExists = (sessionId) => {
     return sessions.has(sessionId)
 }
@@ -63,65 +82,66 @@ const shouldReconnect = (sessionId) => {
 
 
 const createSession = async (sessionId, res = null, options = { usePairingCode: false, phoneNumber: '' }) => {
-    const sessionFile = 'md_' + sessionId
+    try {
+        const sessionFile = 'md_' + sessionId
 
-    const logger = pino({ level: 'silent' })
-    const store = makeInMemoryStore({
-        preserveDataDuringSync: true,
-        backupBeforeSync: false,
-        incrementalSave: true,
-        maxMessagesPerChat: 150,
-        autoSaveInterval: 10000,
-        storeFile: sessionsDir(`${sessionId}_store.json`)
-    });
+        const logger = pino({ level: 'silent' })
+        const store = makeInMemoryStore({
+            preserveDataDuringSync: true,
+            backupBeforeSync: false,
+            incrementalSave: true,
+            maxMessagesPerChat: 150,
+            autoSaveInterval: 10000,
+            storeFile: sessionsDir(`${sessionId}_store.json`)
+        });
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionsDir(sessionFile))
+        const { state, saveCreds } = await useMultiFileAuthState(sessionsDir(sessionFile))
 
-    // Fetch latest version of WA Web
-    const { version, isLatest } = await fetchLatestBaileysVersion()
-    console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
+        // Fetch latest version of WA Web
+        const { version, isLatest } = await fetchLatestBaileysVersion()
+        console.log(`using WA v${version.join('.')}, isLatest: ${isLatest}`)
 
-    // Load store
-    store?.readFromFile(sessionsDir(`${sessionId}_store.json`))
+        // Load store
+        store?.readFromFile(sessionsDir(`${sessionId}_store.json`))
 
-    // Make both Node and Bun compatible
-    const makeWASocket = makeWASocketModule.default ?? makeWASocketModule;
+        // Make both Node and Bun compatible
+        const makeWASocket = makeWASocketModule.default ?? makeWASocketModule;
 
-    /**
-     * @type {import('baileys').AnyWASocket}
-     */
-    const wa = makeWASocket({
-        version,
-        printQRInTerminal: false,
-        mobile: false,
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, logger),
-        },
-        logger,
-        msgRetryCounterCache,
-        generateHighQualityLinkPreview: true,
-        getMessage,
-    })
-    store?.bind(wa.ev)
+        /**
+         * @type {import('baileys').AnyWASocket}
+         */
+        const wa = makeWASocket({
+            version,
+            printQRInTerminal: false,
+            mobile: false,
+            auth: {
+                creds: state.creds,
+                keys: makeCacheableSignalKeyStore(state.keys, logger),
+            },
+            logger,
+            msgRetryCounterCache,
+            generateHighQualityLinkPreview: true,
+            getMessage,
+        })
+        store?.bind(wa.ev)
 
-    sessions.set(sessionId, { ...wa, store })
+        sessions.set(sessionId, { ...wa, store })
 
-    if (options.usePairingCode && !wa.authState.creds.registered) {
-        if (!wa.authState.creds.account) {
-            await wa.waitForConnectionUpdate((update) => {
-                return Boolean(update.qr)
-            })
-            const code = await wa.requestPairingCode(options.phoneNumber)
-            if (res && !res.headersSent && code !== undefined) {
-                response(res, 200, true, 'Verify on your phone and enter the provided code.', { code })
-            } else {
-                response(res, 500, false, 'Unable to create session.')
+        if (options.usePairingCode && !wa.authState.creds.registered) {
+            if (!wa.authState.creds.account) {
+                await wa.waitForConnectionUpdate((update) => {
+                    return Boolean(update.qr)
+                })
+                const code = await wa.requestPairingCode(options.phoneNumber)
+                if (res && !res.headersSent && code !== undefined) {
+                    response(res, 200, true, 'Verify on your phone and enter the provided code.', { code })
+                } else {
+                    response(res, 500, false, 'Unable to create session.')
+                }
             }
         }
-    }
 
-    wa.ev.on('creds.update', saveCreds)
+        wa.ev.on('creds.update', saveCreds)
 
    
 
@@ -260,7 +280,7 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
 
    
 
-    wa.ev.on('connection.update', async (update) => {
+        wa.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update
         const statusCode = lastDisconnect?.error?.output?.statusCode
 
@@ -328,14 +348,28 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
 
    
 
-    async function getMessage(key) {
-        if (store) {
-            const msg = await store.loadMessages(key.remoteJid, key.id)
-            return msg?.message || undefined
+        async function getMessage(key) {
+            if (store) {
+                const msg = await store.loadMessages(key.remoteJid, key.id)
+                return msg?.message || undefined
+            }
+
+            // Only if store is present
+            return proto.Message.fromObject({})
         }
 
-        // Only if store is present
-        return proto.Message.fromObject({})
+        return wa
+    } catch (error) {
+        sessions.delete(sessionId)
+        retries.delete(sessionId)
+
+        console.error(`[Session ${sessionId}] Failed to create session: ${formatError(error)}`)
+
+        if (res && !res.headersSent) {
+            response(res, 500, false, 'Unable to create session.')
+        }
+
+        return null
     }
 }
 
@@ -456,8 +490,9 @@ const formatGroup = (group) => {
     return (formatted += '@g.us')
 }
 
-const cleanup = () => {
-    console.log('Running cleanup before exit.')
+const cleanup = (exitCode, signal) => {
+    const reason = signal ? `signal ${signal}` : `exit code ${exitCode ?? 0}`
+    console.log(`Running cleanup before exit (${reason}).`)
 
     sessions.forEach((session, sessionId) => {
         session.store.writeToFile(sessionsDir(`${sessionId}_store.json`))
@@ -557,22 +592,29 @@ const convertToBase64 = (arrayBytes) => {
 }
 
 const init = () => {
-    readdir(sessionsDir(), (err, files) => {
-        if (err) {
-            throw err
-        }
+    try {
+        const dir = ensureSessionsDir()
 
-        for (const file of files) {
-            if ((!file.startsWith('md_') && !file.startsWith('legacy_')) || file.endsWith('_store')) {
-                continue
+        readdir(dir, (err, files) => {
+            if (err) {
+                console.error(`[Init] Failed to read sessions directory "${dir}": ${formatError(err)}`)
+                return
             }
 
-            const filename = file.replace('.json', '')
-            const sessionId = filename.substring(3)
-            console.log('Recovering session: ' + sessionId)
-            createSession(sessionId)
-        }
-    })
+            for (const file of files) {
+                if ((!file.startsWith('md_') && !file.startsWith('legacy_')) || file.endsWith('_store')) {
+                    continue
+                }
+
+                const filename = file.replace('.json', '')
+                const sessionId = filename.substring(3)
+                console.log('Recovering session: ' + sessionId)
+                createSession(sessionId)
+            }
+        })
+    } catch (error) {
+        console.error(`[Init] Failed to prepare sessions directory: ${formatError(error)}`)
+    }
 }
 
 export {
