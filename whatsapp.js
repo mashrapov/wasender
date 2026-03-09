@@ -28,8 +28,10 @@ const msgRetryCounterCache = new NodeCache()
 
 const sessions = new Map()
 const retries = new Map()
+const sessionConnectedAt = new Map()
 
 const APP_WEBHOOK_ALLOWED_EVENTS = ['CONNECTION_UPDATE','MESSAGES_UPSERT']
+const OLD_MESSAGE_GRACE_MS = parseInt(process.env.WA_SERVER_OLD_MESSAGE_GRACE_MS ?? 15000)
 
 const sessionsDir = (sessionId = '') => {
     return join(__dirname, 'sessions', sessionId ? sessionId : '')
@@ -52,6 +54,55 @@ const ensureSessionsDir = () => {
     }
 
     return dir
+}
+
+const toUnixMs = (value) => {
+    if (value === null || value === undefined) {
+        return null
+    }
+
+    if (typeof value === 'number') {
+        return value < 1_000_000_000_000 ? value * 1000 : value
+    }
+
+    if (typeof value === 'string') {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? toUnixMs(parsed) : null
+    }
+
+    if (typeof value === 'object') {
+        if (typeof value.toNumber === 'function') {
+            return toUnixMs(value.toNumber())
+        }
+
+        if (typeof value.toString === 'function') {
+            return toUnixMs(value.toString())
+        }
+    }
+
+    return null
+}
+
+const isRealtimeIncomingMessage = (upsert, message, sessionId) => {
+    if (upsert.type !== 'notify' || upsert.requestId) {
+        return false
+    }
+
+    if (message.key.fromMe || !message.message) {
+        return false
+    }
+
+    const connectedAt = sessionConnectedAt.get(sessionId)
+    if (!connectedAt) {
+        return true
+    }
+
+    const messageTimestamp = toUnixMs(message.messageTimestamp)
+    if (!messageTimestamp) {
+        return true
+    }
+
+    return messageTimestamp >= connectedAt - OLD_MESSAGE_GRACE_MS
 }
 
 const isSessionExists = (sessionId) => {
@@ -84,6 +135,7 @@ const shouldReconnect = (sessionId) => {
 const createSession = async (sessionId, res = null, options = { usePairingCode: false, phoneNumber: '' }) => {
     try {
         const sessionFile = 'md_' + sessionId
+        sessionConnectedAt.delete(sessionId)
 
         const logger = pino({ level: 'silent' })
         const store = makeInMemoryStore({
@@ -114,6 +166,8 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
             version,
             printQRInTerminal: false,
             mobile: false,
+            syncFullHistory: false,
+            shouldSyncHistoryMessage: () => false,
             auth: {
                 creds: state.creds,
                 keys: makeCacheableSignalKeyStore(state.keys, logger),
@@ -146,9 +200,9 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
    
 
     // Automatically read incoming messages, uncomment below codes to enable this behaviour
-    wa.ev.on('messages.upsert', async (m) => {
-        const messages = m.messages.filter((m) => {
-            return m.key.fromMe === false
+    wa.ev.on('messages.upsert', async (upsert) => {
+        const messages = upsert.messages.filter((message) => {
+            return isRealtimeIncomingMessage(upsert, message, sessionId)
         })
         if (messages.length > 0) {
             const messageTmp = await Promise.all(
@@ -306,9 +360,11 @@ const createSession = async (sessionId, res = null, options = { usePairingCode: 
 
         if (connection === 'open') {
             retries.delete(sessionId)
+            sessionConnectedAt.set(sessionId, Date.now())
         }
 
         if (connection === 'close') {
+            sessionConnectedAt.delete(sessionId)
             if (statusCode === DisconnectReason.loggedOut || !shouldReconnect(sessionId)) {
                 if (res && !res.headersSent) {
                     response(res, 500, false, 'Unable to create session.')
@@ -394,6 +450,7 @@ const deleteSession = (sessionId) => {
 
     sessions.delete(sessionId)
     retries.delete(sessionId)
+    sessionConnectedAt.delete(sessionId)
 }
 
 const getChatList = (sessionId, isGroup = false) => {
